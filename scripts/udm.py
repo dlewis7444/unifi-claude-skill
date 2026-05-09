@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """
 UniFi Dream Machine Pro API helper script.
-Fetches API key from UNIFI_API_KEY env var or pass (network/unifi/api-key).
+
+Configuration is read from a `.env` file at the project root (see `.env.example`)
+or from environment variables. Real environment variables take precedence over
+the .env file. Supported keys:
+  UDM_HOST         UniFi controller hostname (default: unifi.local)
+  UNIFI_API_KEY    API key; if unset, falls back to `pass network/unifi/api-key`
 
 Usage: python udm.py <command> [subcommand] [args] [--json]
 
 Global flags:
   --json       Output raw JSON (default: pretty-printed)
-  --host HOST  Override host (default: unifi.local)
+  --host HOST  Override host (default: $UDM_HOST or unifi.local)
 """
 
 import argparse
@@ -16,6 +21,7 @@ import os
 import subprocess
 import sys
 import warnings
+from pathlib import Path
 from typing import Any
 
 import urllib.request
@@ -24,7 +30,29 @@ import ssl
 
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
-DEFAULT_HOST = "unifi.local"
+
+def _load_dotenv() -> None:
+    """Load KEY=VALUE pairs from .env at the project root, if present.
+
+    Existing environment variables are never overwritten — real env wins over file.
+    """
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.is_file():
+        return
+    for raw in env_path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
+_load_dotenv()
+
+DEFAULT_HOST = os.environ.get("UDM_HOST", "unifi.local")
 DEFAULT_SITE = "default"
 
 

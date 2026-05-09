@@ -26,30 +26,32 @@ In the UniFi OS web UI:
 2. Click **Create API Key**
 3. Give it a name (e.g. `claude`) and copy the key
 
-### 3. Store the API key
+### 3. Configure host and API key (`.env`)
 
-**Option A — `pass` (recommended):**
-
-```bash
-pass insert network/unifi/api-key
-```
-
-The script looks for `network/unifi/api-key` by default.
-
-**Option B — environment variable:**
+Copy the example file and fill in your values:
 
 ```bash
-export UNIFI_API_KEY=your-api-key-here
+cp .env.example .env
+$EDITOR .env
 ```
 
-Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to make it permanent.
+`.env` is gitignored. The script auto-loads it at startup. Supported keys:
 
-### 4. Set your controller hostname
+| Key             | Purpose                                                              |
+| --------------- | -------------------------------------------------------------------- |
+| `UDM_HOST`      | UniFi controller hostname or IP (default: `unifi.local`)             |
+| `UNIFI_API_KEY` | API key. Optional — falls back to `pass network/unifi/api-key` if unset |
 
-The script defaults to `unifi.local`. If your controller is at a different address, either:
+Real environment variables always take precedence over the `.env` file, and a
+runtime `--host` flag wins over both:
 
-- Pass `--host` at runtime: `python udm.py --host 192.168.1.1 status`
-- Or update `DEFAULT_HOST` in `scripts/udm.py`
+```bash
+python udm.py --host 192.168.1.1 status
+```
+
+**API key alternatives.** Instead of `UNIFI_API_KEY` in `.env`, you can store it in
+[`pass`](https://www.passwordstore.org/) under `network/unifi/api-key` (the script
+will fetch it automatically), or export `UNIFI_API_KEY` in your shell profile.
 
 ## Usage
 
@@ -78,6 +80,7 @@ python ~/.claude/skills/unifi/scripts/udm.py --help
 SKILL.md          # Skill definition read by Claude Code
 scripts/
   udm.py          # Python CLI helper for the UniFi API
+.env.example      # Template — copy to `.env` and fill in
 LICENSE
 README.md
 ```
