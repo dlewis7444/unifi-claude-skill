@@ -3,3 +3,4 @@ AGENTS.md
 .env
 __pycache__/
 .claude/
+.idea/
