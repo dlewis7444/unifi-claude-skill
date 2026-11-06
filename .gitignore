@@ -4,3 +4,4 @@ AGENTS.md
 __pycache__/
 .claude/
 .idea/
+.DS_Store
