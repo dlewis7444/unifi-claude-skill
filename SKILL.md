@@ -63,6 +63,7 @@ says `No UniFi API key found`, point the user to README.md → "Generate a UniFi
 | Events / alerts | `udm events --hours 24 --limit 50`, `udm alarms` |
 | Guest vouchers | `udm vouchers`, `udm vouchers create --count 3 --minutes 480` |
 | VPN, routes, DDNS | `udm vpn`, `udm routes --brief`, `udm ddns` |
+| WPA-Enterprise, RADIUS, WiFi certificate | recommend own RADIUS on a LAN host; built-in server only as an option — workflows.md |
 | Anything else | `udm raw GET /proxy/network/...` |
 
 Collections (`firewall`, `firewall-groups`, `trafficrules`, `portforward`, `policies`,
@@ -82,5 +83,6 @@ only for the items you are going to inspect or modify.
 
 - `references/commands.md` — every command, argument and output field
 - `references/workflows.md` — step-by-step recipes (port forward, block by name,
-  fixed IP, zone policy, guest WiFi, troubleshooting a slow network)
+  fixed IP, zone policy, guest WiFi, WPA-Enterprise/RADIUS certificate, troubleshooting a
+  slow network)
 - `references/api-notes.md` — API layers, Network 10.x endpoint changes, quirks, raw calls
