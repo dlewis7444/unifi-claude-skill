@@ -1,3 +1,4 @@
+import base64
 import contextlib
 import io
 import json
@@ -13,6 +14,7 @@ from udmlib import cli, config
 from udmlib.client import APIError
 from udmlib.commands import clients, firewall, guests, logs, system
 from udmlib.resources import deep_merge
+from udmlib.secrets import REDACTED, redact
 from udmlib.util import Brief, UsageError, load_json_arg, mac, table
 
 
@@ -264,6 +266,75 @@ class CliTests(unittest.TestCase):
         code, _, _ = run_cli(fake, "wlans", "set-password", "w1", "new-secret")
         self.assertEqual(code, 0)
         self.assertEqual(fake.mutations()[0][2]["x_passphrase"], "new-secret")
+
+
+PEM_WITH_KEY = base64.b64encode(
+    b"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+    b"-----BEGIN RSA PRIVATE KEY-----\n" + b"A" * 300).decode()
+PEM_CERT_ONLY = base64.b64encode(b"-----BEGIN CERTIFICATE-----\n" + b"A" * 300).decode()
+
+
+class SecretsTests(unittest.TestCase):
+    WLAN = {"_id": "w1", "name": "Home", "wpa_mode": "wpa2", "x_passphrase": "hunter22",
+            "x_ssh_auth_password_enabled": True, "x_empty": "", "nested": {"x_secret": "s"}}
+
+    def test_redact_masks_secrets_only(self):
+        r = redact({**self.WLAN, "utm_token": "t", "wan_password": "p",
+                    "server_certificate": PEM_WITH_KEY, "ca_certificate": PEM_CERT_ONLY,
+                    "key": "-----BEGIN OPENSSH PRIVATE KEY-----\nabc"})
+        for k in ("x_passphrase", "utm_token", "wan_password", "server_certificate", "key"):
+            self.assertEqual(r[k], REDACTED, k)
+        self.assertEqual(r["nested"]["x_secret"], REDACTED)
+        self.assertIs(r["x_ssh_auth_password_enabled"], True)
+        self.assertEqual(r["x_empty"], "")
+        self.assertEqual(r["ca_certificate"], PEM_CERT_ONLY)
+        self.assertEqual(r["name"], "Home")
+
+    def test_cli_output_is_redacted_by_default(self):
+        fake = FakeController().on("GET", "rest/wlanconf", [self.WLAN])
+        _, out, _ = run_cli(fake, "wlans")
+        self.assertNotIn("hunter22", out)
+        self.assertIn(REDACTED, out)
+        _, out, _ = run_cli(fake, "wlans", "--show-secrets")
+        self.assertIn("hunter22", out)
+
+    def test_put_restores_redacted_fields(self):
+        fake = (FakeController()
+                .on("GET", "rest/wlanconf", [self.WLAN])
+                .on("PUT", "rest/wlanconf/w1", lambda b: [b]))
+        body = {**redact(self.WLAN), "wpa_mode": "wpa3"}
+        code, _, err = run_cli(fake, "wlans", "update", "w1", "--data", json.dumps(body))
+        self.assertEqual(code, 0, err)
+        sent = fake.mutations()[0][2]
+        self.assertEqual(sent["x_passphrase"], "hunter22")
+        self.assertEqual(sent["nested"]["x_secret"], "s")
+        self.assertEqual(sent["wpa_mode"], "wpa3")
+
+    def test_settings_put_reads_from_get_setting(self):
+        ips = {"_id": "s1", "key": "ips", "ips_mode": "ids", "utm_token": "tok"}
+        fake = (FakeController()
+                .on("GET", "get/setting/ips", [ips])
+                .on("PUT", "set/setting/ips/s1", lambda b: [b]))
+        body = {**redact(ips), "ips_mode": "ips"}
+        code, _, err = run_cli(fake, "raw", "PUT",
+                               "/proxy/network/api/s/default/set/setting/ips/s1",
+                               "--data", json.dumps(body))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(fake.mutations()[0][2]["utm_token"], "tok")
+
+    def test_unrestorable_placeholder_is_refused(self):
+        fake = (FakeController()
+                .on("GET", "rest/wlanconf", [{"_id": "w1", "name": "Home"}])
+                .on("POST", "rest/wlanconf", lambda b: [b]))
+        body = json.dumps({"_id": "w1", "x_passphrase": REDACTED})
+        code, _, err = run_cli(fake, "wlans", "update", "w1", "--data", body)
+        self.assertEqual(code, 1)
+        self.assertIn("Refusing", err)
+        code, _, err = run_cli(fake, "raw", "POST", "/proxy/network/api/s/default/rest/wlanconf",
+                               "--data", '{"x_passphrase": "<redacted>"}')
+        self.assertEqual(code, 1)
+        self.assertIn("Refusing", err)
+        self.assertEqual(fake.mutations(), [])
 
 
 if __name__ == "__main__":

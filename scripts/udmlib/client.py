@@ -9,6 +9,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
+from .secrets import REDACTED, RedactionError, has_redacted, restore
+
 # transport(method, url, headers, data, timeout) -> (status, body_text)
 Transport = Callable[[str, str, dict, "bytes | None", float], "tuple[int, str]"]
 
@@ -85,6 +87,8 @@ class UDMClient:
         method = method.upper()
         if mutating is None:
             mutating = method != "GET"
+        if body is not None and has_redacted(body):
+            body = self._restore_redacted(method, url, body)
         if self.dry_run and mutating:
             return {"dry_run": True, "method": method, "url": url, "body": body}
 
@@ -110,6 +114,47 @@ class UDMClient:
             if unwrap and "data" in parsed:
                 return parsed["data"]
         return parsed
+
+    def _restore_redacted(self, method: str, url: str, body: Any) -> Any:
+        """Swap REDACTED placeholders (from redacted CLI output) for current values.
+
+        Only updates of existing objects (PUT) can be restored; anything else that
+        still carries a placeholder is refused rather than sent.
+        """
+        if method != "PUT":
+            raise APIError(f"Refusing {method} {url}: body contains {REDACTED} placeholders "
+                           "(only PUT updates of existing objects can restore them)")
+        obj_id = body.get("_id") or body.get("id") if isinstance(body, dict) else None
+        candidates = [url]
+        if "/set/setting/" in url:  # legacy settings: written via set/, read via get/
+            prefix, _, rest = url.partition("/set/setting/")
+            candidates = [f"{prefix}/get/setting/{rest.split('/')[0]}"]
+        else:
+            candidates.append(url.rsplit("/", 1)[0])  # the parent collection
+        for candidate in candidates:
+            try:
+                current = self.request("GET", candidate)
+            except APIError:
+                continue
+            if isinstance(current, dict):
+                for key in ("data", "items"):
+                    if isinstance(current.get(key), list):
+                        current = current[key]
+                        break
+            if isinstance(current, list):
+                match = [o for o in current if isinstance(o, dict)
+                         and obj_id is not None and obj_id in (o.get("_id"), o.get("id"))]
+                if not match and len(current) == 1 and candidate == url:
+                    match = current
+                if not match:
+                    continue
+                current = match[0]
+            try:
+                return restore(body, current)
+            except RedactionError as e:
+                raise APIError(f"Refusing {method} {url}: {e}") from e
+        raise APIError(f"Refusing {method} {url}: cannot fetch the current object "
+                       f"to restore {REDACTED} fields")
 
     def get(self, url: str, **kw: Any) -> Any:
         return self.request("GET", url, **kw)

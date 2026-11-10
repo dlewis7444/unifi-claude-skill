@@ -95,6 +95,15 @@ Talk to Claude:
 Claude follows the safety rules in `SKILL.md`: it looks objects up first, asks before any
 change, and previews non-trivial changes with `--dry-run`.
 
+### Secrets are masked by default
+
+The UniFi API returns credentials in plain text (WiFi passphrases, SSH/RADIUS/PPPoE
+passwords, VPN and TLS private keys, API tokens). `udm.py` prints them as `"<redacted>"`,
+so they don't end up in your terminal history or in Claude's context. Updates still
+work: when an object is PUT back with `"<redacted>"` placeholders, the script restores
+the real values from the controller before sending (a POST with placeholders is
+refused). Pass `--show-secrets` to see raw values.
+
 The helper also works on its own — see `udm.py --help` and
 [references/commands.md](references/commands.md).
 
@@ -113,6 +122,7 @@ scripts/
     client.py            # HTTP client: timeouts, error handling, --dry-run
     resources.py         # generic list/get/create/update(--patch)/delete/enable/disable
     util.py              # MAC parsing, JSON args, brief tables
+    secrets.py           # masks secrets in output, restores them on PUT
     commands/            # one module per area: clients, devices, network, firewall,
                          # logs, stats, guests, system
 tests/                   # unit tests with a fake controller (no network needed)

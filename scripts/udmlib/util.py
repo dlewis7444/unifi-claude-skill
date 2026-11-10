@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Any, Iterable
 
+from .secrets import redact
+
 _MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 
 
@@ -152,7 +154,9 @@ def _cell(v: Any) -> str:
     return str(v)
 
 
-def emit(data: Any, as_json: bool) -> None:
+def emit(data: Any, as_json: bool, show_secrets: bool = False) -> None:
+    if not show_secrets:
+        data = Brief(redact(data.rows)) if isinstance(data, Brief) else redact(data)
     if isinstance(data, Brief):
         if as_json:
             print(json.dumps(data.rows))

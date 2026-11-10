@@ -22,7 +22,8 @@ python ~/.claude/skills/unifi/scripts/udm.py <command> [action] [args] [global f
 Below, `udm` means that full command. Run `udm <command> --help` for exact arguments.
 
 **Global flags** (allowed anywhere): `--json` (compact output), `--dry-run` (print
-mutating requests instead of sending), `--host`, `--site`, `--timeout`.
+mutating requests instead of sending), `--host`, `--site`, `--timeout`,
+`--show-secrets` (see safety rule 6 — normally never used).
 
 Configuration (host, API key) comes from `.env` next to `SKILL.md`. If the script
 says `No UniFi API key found`, point the user to README.md → "Generate a UniFi API key"
@@ -41,6 +42,14 @@ says `No UniFi API key found`, point the user to README.md → "Generate a UniFi
    the user is connected through without warning that the network will drop.
 5. Prefer `update <id> --patch '{...}'` over `--data`: it fetches the current object
    and merges, so unrelated fields are not lost.
+6. **Never leak secrets.** The API returns WiFi passphrases, SSH/RADIUS/PPPoE passwords,
+   VPN/TLS private keys and tokens in plain text; the script prints them as
+   `"<redacted>"`. Never pass `--show-secrets` unless the user explicitly asks for a
+   specific secret (then show only that value). Never bypass the script (`curl`,
+   ad-hoc HTTP code) or write unredacted responses to files. In audits, report a
+   secret's properties (set/unset, WPA mode), never its value. Sending an object back
+   with `"<redacted>"` left in place is fine — PUTs restore the real values; POSTs with
+   placeholders are refused. If a secret did reach the chat, say so and suggest rotating it.
 
 ## Picking the right command
 

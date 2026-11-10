@@ -1,7 +1,13 @@
 # Command reference
 
 `udm` = `python ~/.claude/skills/unifi/scripts/udm.py`. Global flags work in any
-position: `--json`, `--dry-run`, `--host HOST`, `--site SITE`, `--timeout SEC`.
+position: `--json`, `--dry-run`, `--host HOST`, `--site SITE`, `--timeout SEC`,
+`--show-secrets`.
+
+Secrets (WiFi passphrases, passwords, private keys, tokens — `x_*` fields, `*password*`,
+`*private_key*`, `utm_token`, PEM private keys) are printed as `"<redacted>"` unless
+`--show-secrets` is given. A PUT whose body still contains `"<redacted>"` gets the
+current values filled back in from the controller; a POST with placeholders is refused.
 
 Exit codes: `0` ok, `1` API/network error, `2` usage or configuration error.
 Errors go to stderr as one line: `error: HTTP 400 for PUT …: api.err.InvalidPayload`.
