@@ -1,95 +1,140 @@
 # UniFi Claude Code Skill
 
-A [Claude Code](https://claude.ai/claude-code) skill for managing a UniFi Dream Machine Pro (or any UniFi OS controller) via its local API. Once installed, Claude can query clients, manage firewall rules, toggle port forwards, inspect devices, and more — just by asking.
+A [Claude Code](https://claude.ai/claude-code) skill for managing a UniFi OS controller
+(Dream Machine Pro/SE, Cloud Gateway, Dream Router…) through its local API. Once
+installed, Claude can tell you who is on the network, block devices, reserve IPs, manage
+firewall zone policies, traffic rules and port forwards, restart APs, power-cycle PoE
+ports, run speed tests, hand out guest vouchers and more — just by asking.
 
 ## Requirements
 
-- Python 3.10+
-- A UniFi OS controller with API key support (UDM Pro, UDM SE, CloudGateway, etc.)
-- [Claude Code](https://claude.ai/claude-code) with superpowers skills support
+- Python 3.10+ (standard library only)
+- A UniFi OS controller with Network Application 9.x or 10.x and API-key support
+- [Claude Code](https://claude.ai/claude-code)
 
 ## Installation
 
 ### 1. Put the skill into place
 
 ```bash
-cp -r . ~/.claude/skills/unifi
+git clone git@github.com:dlewis7444/unifi-claude-skill.git
+ln -s "$PWD/unifi-claude-skill" ~/.claude/skills/unifi
 ```
 
-Claude Code picks up skills from `~/.claude/skills/` automatically.
-
-Alternatively, symlink instead of copying — the installed skill then stays in sync
-with the repo and the script resolves `.env` from the repo root:
-
-```bash
-ln -s "$PWD" ~/.claude/skills/unifi
-```
+A symlink keeps the installed skill in sync with the repo; the script reads `.env`
+from the repo root. Copying (`cp -r unifi-claude-skill ~/.claude/skills/unifi`) works too.
 
 ### 2. Generate a UniFi API key
 
-In the UniFi OS web UI:
+The key is created in the **local** controller UI (not on unifi.ui.com — Site Manager
+keys are for the cloud API and do not work here):
 
-1. Go to **Settings → Admins & Users → API Keys**
-2. Click **Create API Key**
-3. Give it a name (e.g. `claude`) and copy the key
+1. Open `https://<controller-ip>` and sign in with a **local** admin account
+   (Owner or Super Admin, or a dedicated admin — see below).
+2. Open the **Network** application → **Settings** (gear icon) → **Control Plane** →
+   **Integrations**.
+3. Click **Create API Key**, give it a name (e.g. `claude`) and an expiry, then
+   **copy the key right away** — it is shown only once.
 
-### 3. Configure host and API key (`.env`)
+Older UniFi OS builds put the same button under **UniFi OS Settings → Admins & Users →
+(your admin) → API Keys**. If you don't see *Integrations*, update the Network
+application (API keys arrived in Network 9.0).
 
-Copy the example file and fill in your values:
+**Permissions.** A key acts with the permissions of the admin who created it. For least
+privilege, create a dedicated local admin (e.g. `claude`, *Restrict to local access only*)
+with the **Network → Site Admin** role and generate the key while signed in as that admin.
+A *View Only* admin gives a read-only key: status and lists work, every change fails
+with HTTP 401/403.
+
+Check that the key works:
+
+```bash
+curl -sk -H "X-API-Key: <key>" https://<controller-ip>/proxy/network/integration/v1/sites
+```
+
+A JSON list of sites means the key is valid; `401` means wrong key or wrong account type.
+
+### 3. Configure (`.env`)
 
 ```bash
 cp .env.example .env
 $EDITOR .env
+chmod 600 .env
 ```
 
-`.env` is gitignored. The script auto-loads it at startup. Supported keys:
+| Key | Purpose | Default |
+|---|---|---|
+| `UDM_HOST` | Controller hostname or IP | `unifi.local` |
+| `UDM_SITE` | Site name (internal name, as in the URL) | `default` |
+| `UDM_TIMEOUT` | HTTP timeout, seconds | `30` |
+| `UNIFI_API_KEY` | API key | falls back to `pass` |
+| `UNIFI_PASS_PATH` | [`pass`](https://www.passwordstore.org/) entry holding the key | `internal/unifi/api-key` |
 
-| Key             | Purpose                                                              |
-| --------------- | -------------------------------------------------------------------- |
-| `UDM_HOST`      | UniFi controller hostname or IP (default: `unifi.local`)             |
-| `UNIFI_API_KEY` | API key. Optional — falls back to `pass internal/unifi/api-key` if unset |
+Real environment variables override `.env`; the `--host`, `--site` and `--timeout`
+flags override both. `.env` is gitignored.
 
-Real environment variables always take precedence over the `.env` file, and a
-runtime `--host` flag wins over both:
+### 4. Try it
 
 ```bash
-python udm.py --host 192.168.1.1 status
+python ~/.claude/skills/unifi/scripts/udm.py summary
+python ~/.claude/skills/unifi/scripts/udm.py clients --brief
 ```
-
-**API key alternatives.** Instead of `UNIFI_API_KEY` in `.env`, you can store it in
-[`pass`](https://www.passwordstore.org/) under `internal/unifi/api-key` (the script
-will fetch it automatically), or export `UNIFI_API_KEY` in your shell profile.
 
 ## Usage
 
-Once installed, just talk to Claude:
+Talk to Claude:
 
-- "Who's connected to the network?"
-- "Block the device with MAC aa:bb:cc:dd:ee:ff"
-- "Show me all firewall rules"
-- "Add a port forward — external 8080 to 192.168.1.50:80"
-- "What's my WAN traffic for the last 24 hours?"
-- "Restart the AP in the garage"
+- "Is the network healthy?" / "Why is the internet slow?"
+- "Who's connected? Block the Xbox."
+- "Give the printer a fixed IP of 192.168.1.20 and call it Office printer"
+- "Forward port 443 to the NAS"
+- "Block the IoT zone from reaching the LAN"
+- "Change the guest WiFi password" / "Create 5 guest vouchers for today"
+- "Power-cycle the camera on switch port 7"
 
-Claude will invoke the skill automatically when your request involves the network.
+Claude follows the safety rules in `SKILL.md`: it looks objects up first, asks before any
+change, and previews non-trivial changes with `--dry-run`.
 
-You can also run the helper script directly:
+### Secrets are masked by default
+
+The UniFi API returns credentials in plain text (WiFi passphrases, SSH/RADIUS/PPPoE
+passwords, VPN and TLS private keys, API tokens). `udm.py` prints them as `"<redacted>"`,
+so they don't end up in your terminal history or in Claude's context. Updates still
+work: when an object is PUT back with `"<redacted>"` placeholders, the script restores
+the real values from the controller before sending (a POST with placeholders is
+refused). Pass `--show-secrets` to see raw values.
+
+The helper also works on its own — see `udm.py --help` and
+[references/commands.md](references/commands.md).
+
+## Layout
+
+```
+SKILL.md                 # what Claude reads first: safety rules + command picker
+references/
+  commands.md            # full command reference
+  workflows.md           # step-by-step recipes
+  api-notes.md           # API layers, Network 10.x changes, quirks
+scripts/
+  udm.py                 # entry point
+  udmlib/
+    config.py            # .env, settings, API key lookup
+    client.py            # HTTP client: timeouts, error handling, --dry-run
+    resources.py         # generic list/get/create/update(--patch)/delete/enable/disable
+    util.py              # MAC parsing, JSON args, brief tables
+    secrets.py           # masks secrets in output, restores them on PUT
+    commands/            # one module per area: clients, devices, network, firewall,
+                         # logs, stats, guests, system
+tests/                   # unit tests with a fake controller (no network needed)
+```
+
+Adding a new config collection is usually one `Resource(...)` declaration in the relevant
+`commands/*.py` module.
+
+## Development
 
 ```bash
-python ~/.claude/skills/unifi/scripts/udm.py status
-python ~/.claude/skills/unifi/scripts/udm.py clients
-python ~/.claude/skills/unifi/scripts/udm.py --help
-```
-
-## Structure
-
-```
-SKILL.md          # Skill definition read by Claude Code
-scripts/
-  udm.py          # Python CLI helper for the UniFi API
-.env.example      # Template — copy to `.env` and fill in
-LICENSE
-README.md
+python -m unittest discover -s tests -v
 ```
 
 ## License
